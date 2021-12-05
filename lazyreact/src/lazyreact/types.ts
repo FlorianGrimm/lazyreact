@@ -1,3 +1,38 @@
+export interface IStateTransformator<Target> {
+    setResult(newValue: Target): void 
+}
+
+export interface IStateTransformatorInternal<Target> {
+    getResult(): TransformatorResult<Target>;
+}
+export type TransformationLink<TState> = {
+    sourceName: keyof (TState);
+    targetName: keyof (TState);
+}
+
+export type TransformationDefinition<TState> = {
+    sourceNames: (keyof (TState))[];
+    targetNames: (keyof (TState))[];
+    transformator: Transformator<TState>;
+}
+
+export type Transformator<TState> = (
+    stateTransformator: IStateTransformator<TState>,
+    state: TState,
+) => TransformatorResult<Partial<TState>> | void;
+
+export type TransformatorResult<TState> = {
+    changed: boolean;
+    result: Partial<TState>;
+} | {
+    changed: true;
+    result: Partial<TState>;
+} | {
+    changed: false;
+};
+
+export type TStateBase = { [key: string]: any };
+
 export interface IStateVersion {
     stateVersion: number;
 }
@@ -34,5 +69,5 @@ export type Action<
         : {
             error: Error;
         }
-    );    
-*/    
+    );
+*/

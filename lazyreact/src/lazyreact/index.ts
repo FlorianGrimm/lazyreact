@@ -5,6 +5,7 @@ export {
     LazyEvent
 } from './types';
 
+export { StateRoot } from './StateRoot';
 export { GlobalStateVersion } from './GlobalStateVersion';
 export { LazyEventQueue } from './LazyEventQueue';
 

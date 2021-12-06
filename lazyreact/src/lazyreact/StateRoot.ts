@@ -6,10 +6,23 @@ import {
 
 import { DirtyState } from "./DirtyState";
 
-type TransformatorOrder<TState extends TStateBase> = {
+// type TransformatorOrder<TState extends TStateBase> = {
+
+type TransformationStatenternal<TState extends TStateBase> = {
+    stateOrder: StateOrder<TState>;
+    transformationName: string;
+    transformators: TransformationOrderInternal<TState>;
+}
+type TransformationOrderInternal<TState extends TStateBase> = {
+    stateOrder: StateOrder<TState>;
+    transformationName: string;
+    transformator: Transformator<TState>;
+}
+
+type StateOrder<TState extends TStateBase> = {
     key: string;
-    prev: Map<string, TransformatorOrder<TState>>;
-    succ: Map<string, TransformatorOrder<TState>>;
+    prev: Map<string, StateOrder<TState>>;
+    succ: Map<string, StateOrder<TState>>;
     position: number;
     order: number;
 };
@@ -19,14 +32,17 @@ export class StateRoot<TState extends TStateBase>{
     stateVersion: number;
     dirtyState: Map<keyof (TState), DirtyState>;
     transformations: TransformationDefinition<TState>[];
-    transformatorOrder: Map<keyof (TState), TransformatorOrder<TState>>;
+    stateOrder: Map<keyof (TState), StateOrder<TState>>;
+    transformationOrder: Map<keyof (TState), (TransformationDefinitionInternal<TState>)[]>;
+
 
     constructor(initalState?: TState) {
         this.states = initalState ?? ({} as TState)
         this.stateVersion = 1;
         this.dirtyState = new Map();
         this.transformations = [];
-        this.transformatorOrder = new Map();
+        this.stateOrder = new Map();
+        this.transformationOrder = new Map();
     }
 
     setDirty(key: keyof (TState), value: DirtyState) {
@@ -34,61 +50,104 @@ export class StateRoot<TState extends TStateBase>{
     }
 
     addTransformation(
+        transformationName: string,
         sourceNames: (keyof (TState))[],
         targetNames: (keyof (TState))[],
         transformator: Transformator<TState>
     ) {
         let oneTransformation: TransformationDefinition<TState> = {
+            transformationName: transformationName,
             sourceNames: sourceNames,
             targetNames: targetNames,
             transformator: transformator
         };
         this.transformations.push(oneTransformation);
         //
-
-        let transformatorOrderSources = sourceNames.map((sourceName) => this.getTransformatorOrder(sourceName));
-        let transformatorOrderTargets = targetNames.map((targetName) => this.getTransformatorOrder(targetName));
-        transformatorOrderSources.forEach((transformatorOrderSource) => {
-            transformatorOrderTargets.forEach(
-                (transformatorOrderTarget) => {
-                    transformatorOrderSource.succ.set(transformatorOrderTarget.key, transformatorOrderTarget);
-                    if (transformatorOrderTarget.position <= transformatorOrderSource.position) {
-                        transformatorOrderTarget.position = transformatorOrderSource.position + 1;
+        let stateOrderSources = sourceNames.map((sourceName) => this.getStateOrder(sourceName));
+        let stateOrderTargets = targetNames.map((targetName) => this.getStateOrder(targetName));
+        stateOrderSources.forEach((stateOrderSource) => {
+            stateOrderTargets.forEach(
+                (stateOrderTarget) => {
+                    stateOrderSource.succ.set(stateOrderTarget.key, stateOrderTarget);
+                    if (stateOrderTarget.position <= stateOrderSource.position) {
+                        stateOrderTarget.position = stateOrderSource.position + 1;
                     }
                 }
             );
         });
-        transformatorOrderTargets.forEach((transformatorOrderTarget) => {
-            transformatorOrderSources.forEach(
+        stateOrderTargets.forEach((stateOrderTarget) => {
+            stateOrderSources.forEach(
                 (transformatorOrderSource) => {
-                    transformatorOrderTarget.prev.set(transformatorOrderSource.key, transformatorOrderSource);
-                    if (transformatorOrderTarget.position <= transformatorOrderSource.position) {
-                        transformatorOrderTarget.position = transformatorOrderSource.position + 1;
+                    stateOrderTarget.prev.set(transformatorOrderSource.key, transformatorOrderSource);
+                    if (stateOrderTarget.position <= transformatorOrderSource.position) {
+                        stateOrderTarget.position = transformatorOrderSource.position + 1;
                     }
                 }
-            );s
+            );
         });
         //
     }
-
-    getTransformatorOrder(key: keyof (TState)) {
-        let transformatorOrder = this.transformatorOrder.get(key);
+    //getTransformatorOrder
+    getStateOrder(key: keyof (TState)) {
+        let transformatorOrder = this.stateOrder.get(key);
         if (transformatorOrder === undefined) {
             transformatorOrder = {
                 key: key as string,
                 prev: new Map(),
                 succ: new Map(),
                 position: 0,
-                order: 0,
+                order: this.stateOrder.size,
             };
-            this.transformatorOrder.set(key, transformatorOrder);
+            this.stateOrder.set(key, transformatorOrder);
         }
         return transformatorOrder;
     }
 
     buildTransformatorOrder() {
-        const arrTransformatorOrder = Array.of(this.transformatorOrder.values());
-        for (const transformatorOrder of arrTransformatorOrder) {
+
+        let changed = true;
+        for (let iWatchDog = this.stateOrder.size; (iWatchDog >= 0) && (changed); iWatchDog--) {
+            changed = false;
+            for (const stateOrder of this.stateOrder.values()) {
+                for (const succStateOrder of stateOrder.succ.values()) {
+                    if (succStateOrder.position <= stateOrder.position) {
+                        succStateOrder.position = stateOrder.position + 1;
+                        changed = true;
+                    }
+                }
+            }
         }
+
+        let arrStateOrder = Array.from(this.stateOrder.entries());
+        arrStateOrder = arrStateOrder.sort((a, b) => {
+            if (a[1].position === b[1].position) {
+                return a[1].order - b[1].order;
+            } else {
+                return a[1].position - b[1].position;
+            }
+        });
+
+        for(const [keyState, stateOrder] of arrStateOrder){
+            // stateOrder.key
+        }
+
+        for (const stateOrder of this.stateOrder.values()) {
+            console.log(
+                "key:",
+                stateOrder.key,
+                " prev:",
+                Array.from(stateOrder.prev.keys()),
+                " succ:",
+                Array.from(stateOrder.succ.keys()),
+                " position:",
+                stateOrder.position,
+                " order:",
+                stateOrder.order
+            );
+        }
+        //transformatorOrder
+    }
+
+    process() {
     }
 }

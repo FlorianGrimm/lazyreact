@@ -1,0 +1,28 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "npm",
+			"script": "compiletest",
+			"group": "build",
+			"problemMatcher": [],
+			"label": "npm: compiletest",
+			"detail": "npx tsc --project tsconfig.test.json"
+		},
+		{
+			"type": "npm",
+			"script": "compile",
+			"group": "build",
+			"problemMatcher": [],
+			"label": "npm: compile",
+			"detail": "npx tsc --project tsconfig.json"
+		},
+		{
+			"type": "npm",
+			"script": "serve",
+			"problemMatcher": [],
+			"label": "npm: serve",
+			"detail": "npx webpack serve --open"
+		}
+	]
+}

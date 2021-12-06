@@ -1,5 +1,5 @@
-export interface IStateTransformator<Target> {
-    setResult(newValue: Target): void 
+export interface IStateTransformator<TState> {
+    setResult(newState: Partial<TState>): void;
 }
 
 export interface IStateTransformatorInternal<Target> {
@@ -11,6 +11,7 @@ export type TransformationLink<TState> = {
 }
 
 export type TransformationDefinition<TState> = {
+    transformationName:string;
     sourceNames: (keyof (TState))[];
     targetNames: (keyof (TState))[];
     transformator: Transformator<TState>;

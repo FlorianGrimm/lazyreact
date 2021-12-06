@@ -1,6 +1,7 @@
 //import { test } from 'jest';
-import 'jest';
-import { 
+/* import 'jest'; */
+
+import {
     deepEquals
 } from '../../lazyreact/deepEquals';
 
@@ -30,7 +31,7 @@ type TAppState1C = {
     stateVersion: number;
 }
 type TAppState1D = {
-    d: string;
+    dMsg: string;
     stateVersion: number;
 }
 class AppState1 extends StateRoot<TAppState1>{
@@ -44,17 +45,25 @@ test('AppState1', () => {
         a: { a1: 1, a2: 2, stateVersion: 0 },
         b: { b1: 3, b2: 4, stateVersion: 0 },
         c: { c: 0, stateVersion: 0 },
-        d: { d: "", stateVersion: 0 }
+        d: { dMsg: "", stateVersion: 0 }
     });
-    appState1.addTransformation1("a", "c", (that, oldResult, a) => {
-        const result: TAppState1C = { 
-            c: 0, 
-            stateVersion:0 
+    appState1.addTransformation("t1", ["a", "b"], ["c"], (stateTransformator, state) => {
+        const { a, b } = state;
+        const result: TAppState1C = {
+            c: a.a1 + a.a2 + b.b1 + b.b2,
+            stateVersion: 0
         };
-        that.setResult(result);
-        /*
-            return { changed: (deepEquals(oldD, result)), result: result };
-        */
+        stateTransformator.setResult({ c: result });
     });
+    appState1.addTransformation("t1", ["a", "c"], ["d"], (stateTransformator, state) => {
+        const { a, c } = state;
+        const result: TAppState1D = {
+            dMsg: `a1:${a.a1}; a2:${a.a2}; c:${c.c};`,
+            stateVersion: 0
+        };
+        stateTransformator.setResult({ d: result });
+    });
+    appState1.buildTransformatorOrder();
+    appState1.process();
     expect(2 + 2).toBe(4);
 });

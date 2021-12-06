@@ -1,0 +1,18 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [        
+        {
+            "name": "Debug Jest Tests",
+            "type": "node",
+            "request": "launch",
+            "preLaunchTask": "npm: compiletest",
+            "runtimeArgs": ["--inspect-brk", "${workspaceRoot}/node_modules/jest/bin/jest.js", "--runInBand", "--coverage", "false"],
+            "console": "externalTerminal",
+            "internalConsoleOptions": "openOnSessionStart",
+            "outputCapture2": "std"
+        }
+    ]    
+}

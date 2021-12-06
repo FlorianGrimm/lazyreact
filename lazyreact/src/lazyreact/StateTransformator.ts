@@ -10,7 +10,7 @@ export class StateTransformator<TState = any>
     readonly stateVersion: number;
     changed: boolean;
     readonly oldState: TState | undefined;
-    newState: TState | undefined;
+    newState: Partial<TState> | undefined;
 
     constructor(
         stateVersion: number,
@@ -22,14 +22,19 @@ export class StateTransformator<TState = any>
         this.newState = undefined;
     }
 
-    setResult(newValue: TState): void {
-        const changed = deepEquals(newValue, this.oldState);
+    setResult(newState: Partial<TState>): void {
+        const changed = deepEquals(newState, this.oldState);
         if (changed) {
             this.changed = true;
-            if ((typeof newValue === "object") && (typeof (newValue as any).stateVersion === "number")){
-                (newValue as any).stateVersion = this.stateVersion;
+            for (const key in newState) {
+                if (Object.prototype.hasOwnProperty.call(newState, key)) {
+                    const subState = newState[key];
+                    if ((typeof subState === "object") && (typeof (subState as any).stateVersion === "number")){
+                        (subState as any).stateVersion = this.stateVersion;
+                    }
+                }
             }
-            this.newState = newValue;
+            this.newState = newState;
         }
     }
 

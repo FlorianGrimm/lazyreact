@@ -7,10 +7,11 @@ export {
 
 export { StateRoot } from './StateRoot';
 export { GlobalStateVersion } from './GlobalStateVersion';
-export { LazyEventQueue } from './LazyEventQueue';
+
+// export { LazyEventQueue } from './LazyEventQueue';
 
 export { 
-    globalStateVersion,
-    lazyEventQueue
+    globalStateVersion
+    // lazyEventQueue
 } from './constants';
 //

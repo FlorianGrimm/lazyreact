@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
-import { AppState } from './component/app/AppState';
+import { AppState, initialAppState } from './component/app/AppState';
 import AppView from './component/app/AppView';
 
 /*
@@ -30,8 +30,9 @@ window.setTimeout(() => {
     if (globalStateVersion.dirty) { globalStateVersion.incrementStateVersion(); }
 }, 1000);
 */
-const appState = new AppState();
-const app = React.createElement(AppView, appState.appViewModel.getProps());
+const appState = initialAppState();
+//const app = React.createElement(AppView, appState.appViewModel.getProps());
+const app = React.createElement(AppView, appState.states.appViewModel);
 ReactDOM.render(
     app,
     document.getElementById('app')

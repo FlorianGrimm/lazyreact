@@ -1,11 +1,11 @@
-import { LazyEvent } from "./LazyEvent";
+// import { LazyEvent } from "./LazyEvent";
 
-export class LazyEventQueue{
-    constructor(){
+// export class LazyEventQueue{
+//     constructor(){
 
-    }
+//     }
 
-    addEvent(lazyEvent:LazyEvent){
+//     addEvent(lazyEvent:LazyEvent){
 
-    }
-}
+//     }
+// }

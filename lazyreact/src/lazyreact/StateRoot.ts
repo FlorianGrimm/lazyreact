@@ -1,28 +1,34 @@
 import {
     Transformator,
     TransformationDefinition,
-    TStateBase
+    TStateBase,
+    IStateTransformator
 } from "./types";
 
 import { DirtyState } from "./DirtyState";
+import { StateTransformator } from "./StateTransformator";
 
 // type TransformatorOrder<TState extends TStateBase> = {
 
-type TransformationStatenternal<TState extends TStateBase> = {
-    stateOrder: StateOrder<TState>;
-    transformationName: string;
-    transformators: TransformationOrderInternal<TState>;
+type TActiveState<TState extends TStateBase> = {
+    stateName: keyof (TState);
+    mapSucc: Map<keyof (TState), Map<keyof (TState), TActiveState<TState>>>;
+    isDirty: boolean;
+    stateVersion: number;
+    transformators: TArrayTransformatorDefinition<TState>;
 }
-type TransformationOrderInternal<TState extends TStateBase> = {
-    stateOrder: StateOrder<TState>;
+
+type TArrayTransformatorDefinition<TState extends TStateBase> = (TTransformatorDefinition<TState>)[];
+
+type TTransformatorDefinition<TState extends TStateBase> = {
     transformationName: string;
     transformator: Transformator<TState>;
 }
 
-type StateOrder<TState extends TStateBase> = {
-    key: string;
-    prev: Map<string, StateOrder<TState>>;
-    succ: Map<string, StateOrder<TState>>;
+type TStateDefinition<TState extends TStateBase> = {
+    key: keyof (TState);
+    prev: Map<keyof (TState), TStateDefinition<TState>>;
+    succ: Map<keyof (TState), TStateDefinition<TState>>;
     position: number;
     order: number;
 };
@@ -30,23 +36,34 @@ type StateOrder<TState extends TStateBase> = {
 export class StateRoot<TState extends TStateBase>{
     states: TState;
     stateVersion: number;
-    dirtyState: Map<keyof (TState), DirtyState>;
-    transformations: TransformationDefinition<TState>[];
-    stateOrder: Map<keyof (TState), StateOrder<TState>>;
-    transformationOrder: Map<keyof (TState), (TransformationDefinitionInternal<TState>)[]>;
+    arrTransformationDefinition: (TransformationDefinition<TState>)[];
+    mapStateDefinition: Map<keyof (TState), TStateDefinition<TState>>;
+    arrActiveState: (TActiveState<TState>)[];
+    mapActiveState: Map<keyof (TState), TActiveState<TState>>;
 
-
-    constructor(initalState?: TState) {
-        this.states = initalState ?? ({} as TState)
+    constructor(initialState?: TState) {
+        this.states = initialState ?? ({} as TState)
         this.stateVersion = 1;
-        this.dirtyState = new Map();
-        this.transformations = [];
-        this.stateOrder = new Map();
-        this.transformationOrder = new Map();
+        this.arrTransformationDefinition = [];
+        this.mapStateDefinition = new Map();
+        this.arrActiveState = [];
+        this.mapActiveState = new Map();
+        if ((initialState !== undefined) && (typeof initialState === "object")) {
+            for (const key in initialState) {
+                if (Object.prototype.hasOwnProperty.call(initialState, key)) {
+                    this.getStateDefinition(key);
+                }
+            }
+        }
     }
 
-    setDirty(key: keyof (TState), value: DirtyState) {
-        this.dirtyState.set(key, value);
+    setDirty(key: keyof (TState)) {
+        const activeState = this.mapActiveState.get(key);
+        if (activeState === undefined) {
+            return;
+        } else {
+            activeState.isDirty = true;
+        }
     }
 
     addTransformation(
@@ -55,16 +72,16 @@ export class StateRoot<TState extends TStateBase>{
         targetNames: (keyof (TState))[],
         transformator: Transformator<TState>
     ) {
-        let oneTransformation: TransformationDefinition<TState> = {
+        let transformationDefinition: TransformationDefinition<TState> = {
             transformationName: transformationName,
             sourceNames: sourceNames,
             targetNames: targetNames,
             transformator: transformator
         };
-        this.transformations.push(oneTransformation);
+        this.arrTransformationDefinition.push(transformationDefinition);
         //
-        let stateOrderSources = sourceNames.map((sourceName) => this.getStateOrder(sourceName));
-        let stateOrderTargets = targetNames.map((targetName) => this.getStateOrder(targetName));
+        let stateOrderSources = sourceNames.map((sourceName) => this.getStateDefinition(sourceName));
+        let stateOrderTargets = targetNames.map((targetName) => this.getStateDefinition(targetName));
         stateOrderSources.forEach((stateOrderSource) => {
             stateOrderTargets.forEach(
                 (stateOrderTarget) => {
@@ -85,30 +102,43 @@ export class StateRoot<TState extends TStateBase>{
                 }
             );
         });
-        //
     }
-    //getTransformatorOrder
-    getStateOrder(key: keyof (TState)) {
-        let transformatorOrder = this.stateOrder.get(key);
+
+    getStateDefinition(key: keyof (TState)): TStateDefinition<TState> {
+        let transformatorOrder = this.mapStateDefinition.get(key);
         if (transformatorOrder === undefined) {
             transformatorOrder = {
                 key: key as string,
                 prev: new Map(),
                 succ: new Map(),
                 position: 0,
-                order: this.stateOrder.size,
+                order: this.mapStateDefinition.size,
             };
-            this.stateOrder.set(key, transformatorOrder);
+            this.mapStateDefinition.set(key, transformatorOrder);
         }
         return transformatorOrder;
     }
 
-    buildTransformatorOrder() {
+    getActiveState(key: keyof (TState)): TActiveState<TState> {
+        let activeState = this.mapActiveState.get(key);
+        if (activeState === undefined) {
+            activeState = {
+                stateName: key,
+                mapSucc: new Map(),
+                isDirty: false,
+                stateVersion: 0,
+                transformators: []
+            };
+            this.mapActiveState.set(key, activeState);
+        }
+        return activeState;
+    }
 
+    buildTransformatorOrder() {
         let changed = true;
-        for (let iWatchDog = this.stateOrder.size; (iWatchDog >= 0) && (changed); iWatchDog--) {
+        for (let iWatchDog = this.mapStateDefinition.size; (iWatchDog >= 0) && (changed); iWatchDog--) {
             changed = false;
-            for (const stateOrder of this.stateOrder.values()) {
+            for (const stateOrder of this.mapStateDefinition.values()) {
                 for (const succStateOrder of stateOrder.succ.values()) {
                     if (succStateOrder.position <= stateOrder.position) {
                         succStateOrder.position = stateOrder.position + 1;
@@ -118,7 +148,7 @@ export class StateRoot<TState extends TStateBase>{
             }
         }
 
-        let arrStateOrder = Array.from(this.stateOrder.entries());
+        let arrStateOrder = Array.from(this.mapStateDefinition.entries());
         arrStateOrder = arrStateOrder.sort((a, b) => {
             if (a[1].position === b[1].position) {
                 return a[1].order - b[1].order;
@@ -127,11 +157,11 @@ export class StateRoot<TState extends TStateBase>{
             }
         });
 
-        for(const [keyState, stateOrder] of arrStateOrder){
+        for (const [keyState, stateOrder] of arrStateOrder) {
             // stateOrder.key
         }
 
-        for (const stateOrder of this.stateOrder.values()) {
+        for (const stateOrder of this.mapStateDefinition.values()) {
             console.log(
                 "key:",
                 stateOrder.key,
@@ -149,5 +179,37 @@ export class StateRoot<TState extends TStateBase>{
     }
 
     process() {
+        this.stateVersion++;
+        const stateTransformator :IStateTransformator<TState>= new StateTransformator(this.stateVersion,this.states);
+        for (const activeState of this.arrActiveState) {
+            if (activeState.isDirty) {
+                activeState.isDirty = false;
+                for (const transformator of activeState.transformators) {
+                    try {
+                        transformator.transformator(stateTransformator, this.states);
+                    } catch (error) {
+                        console.error("Error", transformator.transformationName, error);
+                    }
+                }
+            }
+        }
+    }
+
+    handleAction(actionType: string) {
+        const result = this.executeAction(actionType);
+        if (result !== undefined && typeof result.then === "function") {
+            //result.then(()=>{},()=>{}).finally(()=>{
+            result.finally(() => {
+                this.process();
+            }).then(() => { return null; });
+        } else {
+            this.process();
+        }
+    }
+    executeAction(actionType: string): void | Promise<void> {
+        // TODO
+        // const f=this.action.get(actionType);
+        // return f();
+        return;
     }
 }

@@ -2,20 +2,21 @@ import {
     Transformator,
     TransformationDefinition,
     TStateBase,
-    IStateTransformator
+    IStateTransformator,
+    ActionHandler,
+    ActionInvoker,
+    IStateRoot
 } from "./types";
 
-import { DirtyState } from "./DirtyState";
 import { StateTransformator } from "./StateTransformator";
 
-// type TransformatorOrder<TState extends TStateBase> = {
-
-type TActiveState<TState extends TStateBase> = {
+type TProcessState<TState extends TStateBase> = {
     stateName: keyof (TState);
-    mapSucc: Map<keyof (TState), Map<keyof (TState), TActiveState<TState>>>;
+    mapSuccDirty: Map<keyof (TState), TProcessState<TState>>;
     isDirty: boolean;
     stateVersion: number;
-    transformators: TArrayTransformatorDefinition<TState>;
+    arrTransformator: TArrayTransformatorDefinition<TState>;
+    arrSideEffect: ((state: any) => void)[];
 }
 
 type TArrayTransformatorDefinition<TState extends TStateBase> = (TTransformatorDefinition<TState>)[];
@@ -29,40 +30,40 @@ type TStateDefinition<TState extends TStateBase> = {
     key: keyof (TState);
     prev: Map<keyof (TState), TStateDefinition<TState>>;
     succ: Map<keyof (TState), TStateDefinition<TState>>;
-    position: number;
+    level: number;
     order: number;
+    arrSideEffect: ((state: any) => void)[];
 };
 
-export class StateRoot<TState extends TStateBase>{
+export class StateRoot<TState extends TStateBase> implements IStateRoot<TState>{
     states: TState;
     stateVersion: number;
+    nextStateVersion: number;
     arrTransformationDefinition: (TransformationDefinition<TState>)[];
     mapStateDefinition: Map<keyof (TState), TStateDefinition<TState>>;
-    arrActiveState: (TActiveState<TState>)[];
-    mapActiveState: Map<keyof (TState), TActiveState<TState>>;
+    arrProcessState: (TProcessState<TState>)[];
+    mapProcessState: Map<keyof (TState), TProcessState<TState>>;
+    mapAction: Map<string, ActionHandler<any, TState, any>>
+    handleActionLevel: number;
 
     constructor(initialState?: TState) {
         this.states = initialState ?? ({} as TState)
         this.stateVersion = 1;
+        this.nextStateVersion = 2;
         this.arrTransformationDefinition = [];
         this.mapStateDefinition = new Map();
-        this.arrActiveState = [];
-        this.mapActiveState = new Map();
+        this.arrProcessState = [];
+        this.mapProcessState = new Map();
+        this.mapAction = new Map();
+        this.handleActionLevel = 0;
+
         if ((initialState !== undefined) && (typeof initialState === "object")) {
             for (const key in initialState) {
                 if (Object.prototype.hasOwnProperty.call(initialState, key)) {
                     this.getStateDefinition(key);
+                    this.getProcessState(key);
                 }
             }
-        }
-    }
-
-    setDirty(key: keyof (TState)) {
-        const activeState = this.mapActiveState.get(key);
-        if (activeState === undefined) {
-            return;
-        } else {
-            activeState.isDirty = true;
         }
     }
 
@@ -86,8 +87,8 @@ export class StateRoot<TState extends TStateBase>{
             stateOrderTargets.forEach(
                 (stateOrderTarget) => {
                     stateOrderSource.succ.set(stateOrderTarget.key, stateOrderTarget);
-                    if (stateOrderTarget.position <= stateOrderSource.position) {
-                        stateOrderTarget.position = stateOrderSource.position + 1;
+                    if (stateOrderTarget.level <= stateOrderSource.level) {
+                        stateOrderTarget.level = stateOrderSource.level + 1;
                     }
                 }
             );
@@ -96,12 +97,17 @@ export class StateRoot<TState extends TStateBase>{
             stateOrderSources.forEach(
                 (transformatorOrderSource) => {
                     stateOrderTarget.prev.set(transformatorOrderSource.key, transformatorOrderSource);
-                    if (stateOrderTarget.position <= transformatorOrderSource.position) {
-                        stateOrderTarget.position = transformatorOrderSource.position + 1;
+                    if (stateOrderTarget.level <= transformatorOrderSource.level) {
+                        stateOrderTarget.level = transformatorOrderSource.level + 1;
                     }
                 }
             );
         });
+    }
+
+    addSideEffect<TKey extends keyof (TState)>(key: TKey, sideEffect: (state: TState[TKey]) => void) {
+        const stateDefinition = this.getStateDefinition(key);
+        stateDefinition.arrSideEffect.push(sideEffect);
     }
 
     getStateDefinition(key: keyof (TState)): TStateDefinition<TState> {
@@ -111,105 +117,243 @@ export class StateRoot<TState extends TStateBase>{
                 key: key as string,
                 prev: new Map(),
                 succ: new Map(),
-                position: 0,
+                level: 0,
                 order: this.mapStateDefinition.size,
+                arrSideEffect: []
             };
             this.mapStateDefinition.set(key, transformatorOrder);
         }
         return transformatorOrder;
     }
 
-    getActiveState(key: keyof (TState)): TActiveState<TState> {
-        let activeState = this.mapActiveState.get(key);
+    getProcessState(key: keyof (TState)): TProcessState<TState> {
+        let activeState = this.mapProcessState.get(key);
         if (activeState === undefined) {
             activeState = {
                 stateName: key,
-                mapSucc: new Map(),
-                isDirty: false,
-                stateVersion: 0,
-                transformators: []
+                mapSuccDirty: new Map(),
+                isDirty: true,
+                stateVersion: 1,
+                arrTransformator: [],
+                arrSideEffect: []
             };
-            this.mapActiveState.set(key, activeState);
+            this.mapProcessState.set(key, activeState);
         }
         return activeState;
     }
 
     buildTransformatorOrder() {
-        let changed = true;
-        for (let iWatchDog = this.mapStateDefinition.size; (iWatchDog >= 0) && (changed); iWatchDog--) {
-            changed = false;
-            for (const stateOrder of this.mapStateDefinition.values()) {
+        const arrStateOrder: (TStateDefinition<TState>)[] = [];
+        let arrWorkingStateDefinition = Array.from(this.mapStateDefinition.values());
+        for (let level = 0; (level <= this.mapStateDefinition.size) && (arrWorkingStateDefinition.length > 0); level++) {
+            for (const stateOrder of arrWorkingStateDefinition) {
                 for (const succStateOrder of stateOrder.succ.values()) {
-                    if (succStateOrder.position <= stateOrder.position) {
-                        succStateOrder.position = stateOrder.position + 1;
-                        changed = true;
+                    if (succStateOrder.level <= stateOrder.level) {
+                        succStateOrder.level = stateOrder.level + 1;
                     }
                 }
             }
+            const arrStateDefinitionAtLevel = arrWorkingStateDefinition.filter((stateDefinition) => stateDefinition.level <= level).sort((a, b) => (a.order - b.order));
+            arrStateOrder.push(...arrStateDefinitionAtLevel);
+            arrWorkingStateDefinition = arrWorkingStateDefinition.filter((stateDefinition) => stateDefinition.level > level);
         }
-
-        let arrStateOrder = Array.from(this.mapStateDefinition.entries());
-        arrStateOrder = arrStateOrder.sort((a, b) => {
-            if (a[1].position === b[1].position) {
-                return a[1].order - b[1].order;
+        this.arrProcessState = arrStateOrder.map((stateOrder) => {
+            // const key = stateOrder.key;
+            const processState = this.getProcessState(stateOrder.key);
+            processState.arrTransformator = this.arrTransformationDefinition.filter((transformationDefinition) => transformationDefinition.targetNames.indexOf(processState.stateName) >= 0);
+            processState.arrSideEffect = stateOrder.arrSideEffect;
+            if ((processState.arrTransformator.length === 0) && (processState.arrSideEffect.length === 0)) {
+                processState.isDirty = false;
             } else {
-                return a[1].position - b[1].position;
+                processState.isDirty = true;
             }
+            return { stateOrder, activeState: processState };
+        }).map(({ stateOrder, activeState }) => {
+            for (const succkey of stateOrder.succ.keys()) {
+                const succProcessState = this.getProcessState(succkey);
+                if ((succProcessState.arrTransformator.length > 0) || (succProcessState.arrSideEffect.length > 0)) {
+                    activeState.mapSuccDirty.set(succkey, succProcessState);
+                }
+            }
+            return activeState;
         });
-
-        for (const [keyState, stateOrder] of arrStateOrder) {
-            // stateOrder.key
-        }
-
-        for (const stateOrder of this.mapStateDefinition.values()) {
-            console.log(
-                "key:",
-                stateOrder.key,
-                " prev:",
-                Array.from(stateOrder.prev.keys()),
-                " succ:",
-                Array.from(stateOrder.succ.keys()),
-                " position:",
-                stateOrder.position,
-                " order:",
-                stateOrder.order
-            );
-        }
-        //transformatorOrder
     }
 
     process() {
-        this.stateVersion++;
-        const stateTransformator :IStateTransformator<TState>= new StateTransformator(this.stateVersion,this.states);
-        for (const activeState of this.arrActiveState) {
-            if (activeState.isDirty) {
-                activeState.isDirty = false;
-                for (const transformator of activeState.transformators) {
-                    try {
-                        transformator.transformator(stateTransformator, this.states);
-                    } catch (error) {
-                        console.error("Error", transformator.transformationName, error);
+        if ((this.stateVersion === 1) && (this.arrProcessState.length == 0)) {
+            this.buildTransformatorOrder();
+        }
+        this.stateVersion = this.nextStateVersion;
+        this.nextStateVersion = this.stateVersion + 1;
+        const stateTransformator: IStateTransformator<TState> = new StateTransformator(this);
+        const arrDirtyProcessStateWithSideEffect: (TProcessState<TState>)[] = [];
+        for (const processState of this.arrProcessState) {
+            if (processState.isDirty) {
+                if (processState.arrTransformator.length > 0) {
+                    for (const transformator of processState.arrTransformator) {
+                        try {
+                            transformator.transformator(stateTransformator, this.states);
+                        } catch (error) {
+                            console.error("Error", transformator.transformationName, error);
+                        }
                     }
+                    if (processState.isDirty) {
+                        processState.isDirty = false;
+                        console.warn("Warning: still dirty after processing transformators", processState.stateName, processState.arrTransformator.map((t) => t.transformationName));
+                    }
+                } else {
+                    processState.isDirty = false;
                 }
+                if (processState.arrSideEffect.length > 0) {
+                    arrDirtyProcessStateWithSideEffect.push(processState);
+                }
+            }
+        }
+        for (const processState of this.arrProcessState) {
+            if (processState.isDirty) {
+                console.warn("Warning: is dirty after processing all states", processState.stateName);
+            }
+        }
+        for (const processState of arrDirtyProcessStateWithSideEffect) {
+            const state = this.states[processState.stateName];
+            for (const sideEffect of processState.arrSideEffect) {
+                sideEffect(state);
             }
         }
     }
 
-    handleAction(actionType: string) {
-        const result = this.executeAction(actionType);
-        if (result !== undefined && typeof result.then === "function") {
-            //result.then(()=>{},()=>{}).finally(()=>{
-            result.finally(() => {
-                this.process();
-            }).then(() => { return null; });
-        } else {
-            this.process();
+    processOneState(key: keyof (TState)) {
+        throw new Error("TODO");
+    }
+
+    clearDirtyFromTransformator(key: keyof (TState)) {
+        const processState = this.getProcessState(key);
+        processState.isDirty = false;
+    }
+
+    setStateFromTransformator<TKey extends keyof (TState)>(key: TKey, newState: TState[TKey]) {
+        const processState = this.getProcessState(key);
+        const currentState = this.states[key];
+        if (typeof currentState === "undefined") {
+            console.error("setActiveStateVersion no such sub-state", key);
+        }
+        if (typeof newState === "object" && typeof currentState === "object") {
+            if (typeof (currentState as any).stateVersion === "number") {
+                (newState as any).stateVersion = this.stateVersion;
+            }
+        }
+        this.states[key] = newState;
+        processState.stateVersion = this.stateVersion;
+        processState.isDirty = false;
+        for (const succActiveState of processState.mapSuccDirty.values()) {
+            succActiveState.isDirty = true;
         }
     }
-    executeAction(actionType: string): void | Promise<void> {
-        // TODO
-        // const f=this.action.get(actionType);
-        // return f();
-        return;
+
+    addAction<TPayload, TResult extends Promise<any | void> | void>(
+        actionType: string,
+        actionHandler: ActionHandler<TPayload, TState, TResult>
+    ): ActionInvoker<TPayload, TResult> {
+        if (this.mapAction.has(actionType)){
+            throw new Error(`Action with actionType ${actionType} has been already added.`);
+        }
+        this.mapAction.set(actionType, actionHandler);
+        const actionInvoker = (payload: TPayload) => {
+            return this.handleAction(actionType, payload);
+        }
+        return actionInvoker;
+    }
+
+    handleAction<TPayload, TResult extends Promise<void> | void = any>(actionType: string, payload: TPayload): TResult {
+        this.handleActionLevel++;
+        let added = true;
+        try {
+            const result = this.executeAction(actionType, payload);
+            if (result !== undefined && typeof result.then === "function") {
+                //result.then(()=>{},()=>{}).finally(()=>{
+                const pResult = result.finally(() => {
+                    try {
+                        this.process();
+                    } finally {
+                        if (added) { added = false; this.handleActionLevel--; }
+                    }
+                });
+                return pResult as any;
+            } else {
+                this.process();
+                if (added) { added = false; this.handleActionLevel--; }
+                return undefined!;
+            }
+        } catch (error){
+            if (added) { added = false; this.handleActionLevel--; }
+            throw (error);
+        }
+    }
+
+    executeAction<TPayload>(actionType: string, payload: TPayload): void | Promise<void> {
+        const actionHandler = this.mapAction.get(actionType) as (ActionHandler<TPayload, TState, Promise<any | void> | void> | undefined);
+        if (actionHandler === undefined) {
+            throw new Error(`actionType: ${actionType} is unknown`);
+        } else {
+            const actionResult = actionHandler(payload, this);
+            if (actionResult && typeof actionResult.then === "function") {
+                return actionResult;
+            } else {
+                return;
+            }
+        }
+    }
+    setStateFromAction<TKey extends keyof (TState)>(key: TKey, newState: TState[TKey]): void {
+        const processState = this.getProcessState(key);
+        const currentState = this.states[key];
+        if (typeof currentState === "undefined") {
+            console.error("setStateFromAction no such sub-state", key);
+        }
+        if (processState.stateVersion !== this.nextStateVersion) {
+            if (typeof newState === "object" && typeof currentState === "object") {
+                if (typeof (currentState as any).stateVersion === "number") {
+                    (newState as any).stateVersion = this.nextStateVersion;
+                }
+            }
+            this.states[key] = newState;
+            processState.stateVersion = this.nextStateVersion;
+            // if (processState.transformators.length>0){
+            //     processState.isDirty = true;
+            // }
+            for (const succActiveState of processState.mapSuccDirty.values()) {
+                succActiveState.isDirty = true;
+            }
+        }
+    }
+
+    setStateHasChanged(key: keyof (TState), hasChanged: boolean): void {
+        if (hasChanged) {
+            this.setStateDirty(key);
+        }
+    }
+
+    setStateDirty(key: keyof (TState)) {
+        const processState = this.mapProcessState.get(key);
+        if (processState === undefined) {
+            return;
+        } else {
+            if (processState.isDirty) {
+                // skip
+            } else {
+                const currentState = this.states[key];
+                if (processState.stateVersion !== this.nextStateVersion) {
+                    if (typeof (currentState as any).stateVersion === "number") {
+                        (currentState as any).stateVersion = this.nextStateVersion;
+                    }
+                    processState.stateVersion = this.nextStateVersion;
+                    // if (processState.transformators.length>0){
+                    //     processState.isDirty = true;
+                    // }
+                    for (const succActiveState of processState.mapSuccDirty.values()) {
+                        succActiveState.isDirty = true;
+                    }
+                }
+            }
+        }
     }
 }

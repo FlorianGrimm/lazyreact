@@ -1,54 +1,54 @@
 import { deepEquals } from "./deepEquals";
+import { StateRoot } from "./StateRoot";
 import {
-    IStateTransformator,
-    IStateTransformatorInternal,
-    TransformatorResult
+    IStateTransformator
 } from "./types";
 
 export class StateTransformator<TState = any> 
-    implements IStateTransformator<TState>, IStateTransformatorInternal<TState> {
-    readonly stateVersion: number;
-    changed: boolean;
-    readonly oldState: TState | undefined;
-    newState: Partial<TState> | undefined;
+    implements IStateTransformator<TState> {
+    readonly stateRoot: StateRoot<TState>;
 
     constructor(
-        stateVersion: number,
-        oldValue?: TState
+        stateRoot: StateRoot<TState>
     ) {
-        this.stateVersion = stateVersion;
-        this.changed = false;
-        this.oldState = undefined;
-        this.newState = undefined;
+        this.stateRoot = stateRoot;
     }
-
-    setResult(newState: Partial<TState>): void {
-        const changed = deepEquals(newState, this.oldState);
-        if (changed) {
-            this.changed = true;
+    setHasChanged(key:keyof(TState), hasChanged: boolean):void{
+        if (hasChanged){
+            this.stateRoot.setStateFromTransformator(key, this.stateRoot.states[key]);
+        } else {
+            this.stateRoot.clearDirtyFromTransformator(key);
+        }
+    }
+    setResult<TKey extends keyof(TState)>(key:TKey, newValue:TState[TKey], hasChanged?:boolean):void{
+        if (hasChanged === false){
+            this.stateRoot.clearDirtyFromTransformator(key);
+            return;
+        } 
+        if (hasChanged === undefined){
+            hasChanged = !deepEquals(newValue, this.stateRoot.states[key], true);
+        }
+        if (hasChanged){
+            this.stateRoot.setStateFromTransformator(key, newValue);
+        }
+    }
+    setPartialResult(newState: Partial<TState>, hasChanged?:boolean): void {
+        if (hasChanged === false){
             for (const key in newState) {
                 if (Object.prototype.hasOwnProperty.call(newState, key)) {
-                    const subState = newState[key];
-                    if ((typeof subState === "object") && (typeof (subState as any).stateVersion === "number")){
-                        (subState as any).stateVersion = this.stateVersion;
+                    this.stateRoot.clearDirtyFromTransformator(key);
+                }
+            }
+            return ;
+        } else {
+            for (const key in newState) {
+                if (Object.prototype.hasOwnProperty.call(newState, key)) {
+                    const newSubState = newState[key];
+                    if ((hasChanged === true) || (!deepEquals(newSubState, this.stateRoot.states[key], true))) {
+                        this.stateRoot.setStateFromTransformator(key, newSubState!);
                     }
                 }
             }
-            this.newState = newState;
-        }
-    }
-
-    getResult(): TransformatorResult<TState>{
-        if (this.changed){
-            return {
-                changed: false,
-                result: this.oldState
-            };
-        } else {
-            return {
-                changed: true,
-                result: this.newState!
-            };
         }
     }
 }

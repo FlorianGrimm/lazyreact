@@ -8,7 +8,7 @@
             "name": "Debug Jest Tests",
             "type": "node",
             "request": "launch",
-            "preLaunchTask": "npm: compiletest",
+            // "preLaunchTask": "npm: compiletest",
             "runtimeArgs": ["--inspect-brk", "${workspaceRoot}/node_modules/jest/bin/jest.js", "--runInBand", "--coverage", "false"],
             "console": "externalTerminal",
             "internalConsoleOptions": "openOnSessionStart",

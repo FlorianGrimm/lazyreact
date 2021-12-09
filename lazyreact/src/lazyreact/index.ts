@@ -10,6 +10,8 @@ export { GlobalStateVersion } from './GlobalStateVersion';
 
 // export { LazyEventQueue } from './LazyEventQueue';
 
+export {testAndSet} from './utility';
+
 export { 
     globalStateVersion
     // lazyEventQueue
